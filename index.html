@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scanner de Códigos (Web Móvel)</title>
+
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+        },
+      },
+    }
+  </script>
+
+  <!-- html5-qrcode (CDN principal) -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js"></script>
+  <!-- Fallback (se unpkg falhar) -->
+  <script>
+    if (typeof window.Html5Qrcode === 'undefined') {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/minified/html5-qrcode.min.js';
+      document.head.appendChild(s);
+    }
+  </script>
+
+  <style>
+    #reader {
+      width: 100%;
+      max-width: 420px;
+      margin-left: auto;
+      margin-right: auto;
+      border-radius: 0.75rem;
+      overflow: hidden;
+      box-shadow: 0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -2px rgba(0,0,0,.05);
+      background: #000;
+    }
+    .container { min-height: 100vh; }
+  </style>
+</head>
+<body class="bg-gray-100 font-sans p-4">
+  <div class="container mx-auto max-w-lg flex flex-col items-center">
+    <h1 class="text-3xl font-extrabold text-blue-800 my-6 text-center">
+      Leitor de Códigos de Barras & QR
+    </h1>
+
+    <p id="status-message" class="text-gray-700 mb-4 text-center">
+      Carregue em <b>Iniciar Scanner</b> para ligar a câmara e começar a digitalizar.
+    </p>
+
+    <!-- Área do Scanner -->
+    <div id="reader" class="mb-6"></div>
+
+    <!-- Controlos -->
+    <div class="flex flex-wrap gap-3 mb-6 w-full justify-center">
+      <button id="startButton" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 active:scale-95 flex items-center">
+        Iniciar Scanner
+      </button>
+
+      <button id="stopButton" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 active:scale-95 opacity-50 cursor-not-allowed flex items-center" disabled>
+        Parar
+      </button>
+
+      <button id="clearButton" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 active:scale-95 flex items-center disabled:opacity-50" disabled>
+        Limpar Lista
+      </button>
+    </div>
+
+    <!-- Lista de Códigos -->
+    <div class="bg-white p-5 rounded-xl shadow-lg w-full mb-6">
+      <h2 class="text-xl font-semibold text-gray-800 mb-4 border-b pb-2">
+        Códigos Lidos (<span id="codeCount">0</span>)
+      </h2>
+      <div id="scannedList" class="max-h-60 overflow-y-auto space-y-2 text-sm">
+        <p id="emptyMessage" class="text-gray-500 italic">Nenhum código digitalizado ainda.</p>
+      </div>
+    </div>
+
+    <!-- Exportação -->
+    <div class="w-full flex flex-col space-y-3">
+      <button id="downloadButton" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 active:scale-95 flex items-center justify-center disabled:opacity-50" disabled>
+        Descarregar Ficheiro (.txt)
+      </button>
+
+      <button id="emailButton" class="bg-yellow-500 hover:bg-yellow-600 text-gray-800 font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 active:scale-95 flex items-center justify-center disabled:opacity-50" disabled>
+        Enviar por Email
+      </button>
+    </div>
+  </div>
+
+  <script>
+    let html5Qrcode = null;
+    let isScanning = false;
+    const scannedCodes = [];
+    const uniqueCodes = new Set();
+
+    const startButton = document.getElementById('startButton');
+    const stopButton = document.getElementById('stopButton');
+    const clearButton = document.getElementById('clearButton');
+    const downloadButton = document.getElementById('downloadButton');
+    const emailButton = document.getElementById('emailButton');
+    const scannedList = document.getElementById('scannedList');
+    const codeCountSpan = document.getElementById('codeCount');
+    const emptyMessage = document.getElementById('emptyMessage');
+    const statusMessage = document.getElementById('status-message');
+
+    function updateUI() {
+      const hasCodes = scannedCodes.length > 0;
+      codeCountSpan.textContent = scannedCodes.length;
+      downloadButton.disabled = !hasCodes;
+      emailButton.disabled = !hasCodes;
+      clearButton.disabled = !hasCodes;
+      emptyMessage.style.display = hasCodes ? 'none' : 'block';
+
+      if (isScanning) {
+        startButton.disabled = true;
+        stopButton.disabled = false;
+      } else {
+        startButton.disabled = false;
+        stopButton.disabled = true;
+      }
+    }
+
+    function renderNewCode(code) {
+      const item = document.createElement('div');
+      item.className = 'p-2 bg-blue-50 text-blue-800 rounded-md truncate shadow-sm';
+      item.textContent = code;
+      scannedList.prepend(item);
+    }
+
+    function onScanSuccess(decodedText) {
+      if (!uniqueCodes.has(decodedText)) {
+        uniqueCodes.add(decodedText);
+        scannedCodes.push(decodedText);
+        renderNewCode(decodedText);
+        updateUI();
+        statusMessage.textContent = `Código lido: ${decodedText}. A digitalização continua...`;
+      }
+    }
+
+    function onScanError() {}
+
+    async function startScanner() {
+      if (isScanning) return;
+      if (typeof window.Html5Qrcode === 'undefined') {
+        statusMessage.textContent = 'ERRO: Biblioteca html5-qrcode não carregou.';
+        return;
+      }
+
+      isScanning = true;
+      updateUI();
+      statusMessage.textContent = 'A ligar a câmara...';
+
+      try {
+        if (!html5Qrcode) {
+          html5Qrcode = new Html5Qrcode('reader', false);
+        } else {
+          try { await html5Qrcode.clear(); } catch (_) {}
+        }
+
+        const config = { fps: 10, qrbox: { width: 250, height: 250 }, disableFlip: true };
+        await html5Qrcode.start({ facingMode: 'environment' }, config, onScanSuccess, onScanError);
+        statusMessage.textContent = 'A digitalizar...';
+      } catch (err) {
+        console.error('Erro ao iniciar o scanner:', err);
+        isScanning = false;
+        updateUI();
+        statusMessage.textContent = 'ERRO: Não foi possível aceder à câmara.';
+      }
+    }
+
+    async function stopScanner() {
+      if (!isScanning || !html5Qrcode) return;
+      try {
+        await html5Qrcode.stop();
+        await html5Qrcode.clear();
+      } catch (err) {
+        console.error('Erro ao parar o scanner:', err);
+      } finally {
+        isScanning = false;
+        updateUI();
+        statusMessage.textContent = 'Scanner parado.';
+      }
+    }
+
+    function downloadFile() {
+      if (scannedCodes.length === 0) return;
+      const fileContent = scannedCodes.join('\n');
+      const filename = 'codigos_digitalizados_' + new Date().toISOString().slice(0, 10) + '.txt';
+      const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    }
+
+    function emailList() {
+      if (scannedCodes.length === 0) return;
+      const subject = 'Códigos Digitalizados ' + new Date().toLocaleDateString('pt-PT');
+      const body = 'Lista de Códigos:\n\n' + scannedCodes.join('\n');
+      const mailtoLink = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      window.open(mailtoLink, '_self');
+    }
+
+    function clearList() {
+      scannedCodes.splice(0, scannedCodes.length);
+      uniqueCodes.clear();
+      scannedList.innerHTML = '';
+      emptyMessage.style.display = 'block';
+      updateUI();
+      statusMessage.textContent = 'Lista limpa.';
+    }
+
+    window.onload = function() {
+      updateUI();
+      startButton.addEventListener('click', startScanner);
+      stopButton.addEventListener('click', stopScanner);
+      clearButton.addEventListener('click', clearList);
+      downloadButton.addEventListener('click', downloadFile);
+      emailButton.addEventListener('click', emailList);
+    };
+  </script>
+</body>
+</html>
